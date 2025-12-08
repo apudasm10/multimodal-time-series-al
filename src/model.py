@@ -81,3 +81,34 @@ class TwoStreamTCN(nn.Module):
         combined = torch.cat([feat_motion, feat_audio], dim=1) # (N, 128)
         
         return self.classifier(combined)
+    
+
+class TCN(nn.Module):
+    def __init__(self, num_classes):
+        super(TCN, self).__init__()
+        
+        # --- Stream A: Motion (IMU + Mag) ---
+        # Inputs: Acc(3) + Gyr(3) + Mag(3) = 9 Channels
+        self.motion_branch = nn.Sequential(
+            nn.BatchNorm1d(9), # Normalize raw inputs
+            TemporalBlock(9, 32, kernel_size=3, stride=1, dilation=1, padding=2),
+            TemporalBlock(32, 64, kernel_size=3, stride=1, dilation=2, padding=4),
+            TemporalBlock(64, 128, kernel_size=3, stride=1, dilation=4, padding=8),
+            nn.AdaptiveAvgPool1d(1) # Output: (Batch, 64, 1)
+        )
+    
+        # --- Classifier ---
+        self.classifier = nn.Sequential(
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(64, num_classes)
+        )
+
+    def forward(self, x_acc, x_gyr, x_mag):
+
+        x_motion = torch.cat([x_acc, x_gyr, x_mag], dim=1)
+        
+        feat_motion = self.motion_branch(x_motion).squeeze(-1) # (N, 64)
+                
+        return self.classifier(feat_motion)
