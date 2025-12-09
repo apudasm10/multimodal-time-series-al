@@ -180,6 +180,23 @@ class ToolTrackingDataset2(Dataset):
                 print(f"Warning: skipping window {i}! All the labels are not same")
                 continue
 
+            val_acc, counts_acc = np.unique(y_window[0], return_counts=True)
+            idx = np.argmax(counts_acc)
+            y_acc_window = int(val_acc[idx])
+
+            val_gyr, counts_gyr = np.unique(y_window[1], return_counts=True)
+            idx = np.argmax(counts_gyr)
+            y_gyr_window = int(val_gyr[idx])
+
+            val_mag, counts_mag = np.unique(y_window[2], return_counts=True)
+            idx = np.argmax(counts_mag)
+            y_mag_window = int(val_mag[idx])
+
+            # remove windows that has different labels across sensor types
+            if not (y_acc_window == y_gyr_window == y_mag_window):
+                print(f"Warning: skipping window {i}! All the labels are not same")
+                continue
+
             self.valid.append(i)
 
         # reference shapes for upsampling. We use first valid sample as the ref sample.
@@ -218,7 +235,6 @@ class ToolTrackingDataset2(Dataset):
         #upsample to match ref mic shape
         # x_mic = fix_len(x_mic, self.ref_mic[0])
 
-        
         y_window = self.y_trans[idx:idx+4]
         y_label = torch.tensor(y_window[0][0], dtype=torch.long)
         

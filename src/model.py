@@ -94,6 +94,7 @@ class TCN(nn.Module):
             TemporalBlock(9, 32, kernel_size=3, stride=1, dilation=1, padding=2),
             TemporalBlock(32, 64, kernel_size=3, stride=1, dilation=2, padding=4),
             TemporalBlock(64, 128, kernel_size=3, stride=1, dilation=4, padding=8),
+            TemporalBlock(128, 128, kernel_size=3, stride=1, dilation=8, padding=16),
             nn.AdaptiveAvgPool1d(1) # Output: (Batch, 64, 1)
         )
     
@@ -101,7 +102,7 @@ class TCN(nn.Module):
         self.classifier = nn.Sequential(
             nn.Linear(128, 64),
             nn.ReLU(),
-            nn.Dropout(0.2),
+            nn.Dropout(0.25),
             nn.Linear(64, num_classes)
         )
 

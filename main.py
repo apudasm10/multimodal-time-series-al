@@ -4,7 +4,7 @@ from src.dataset import ToolTrackingDataset, ToolTrackingDataset2
 from src.model import TwoStreamTCN, TCN
 from torch.utils.data import DataLoader, random_split
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
+from sklearn.metrics import classification_report, confusion_matrix, accuracy_score, f1_score
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -14,7 +14,7 @@ from src.utils import *
 
 source_folder = "./tool-tracking-data/"
 
-dataset = ToolTrackingDataset(
+dataset = ToolTrackingDataset2(
     source_path=source_folder,
     tool_name="electric_screwdriver",
     window_length=0.4,
@@ -22,8 +22,7 @@ dataset = ToolTrackingDataset(
     exclude_time=True
 )
 
-# print("Feature Shape", dataset[1000][0].shape)
-print("Target", dataset[0][-1])
+print(dataset[0][0].shape)
 
 class_counts = {}
 
@@ -110,9 +109,19 @@ print("[VAL] Counts:", counts)
 
 # print(X_train[54])
 
-model = TwoStreamTCN(num_classes=len(unique))
-# model = TCN(num_classes=len(unique))
+# model = TwoStreamTCN(num_classes=len(unique))
+model = TCN(num_classes=len(unique))
 
+class_mapping = {
+    2: 0,
+    3: 1,
+    4: 2,
+    5: 3,
+    6: 4,
+    7: 5,
+    8: 6,
+    14: 7
+}
 
 print("Total Samples", len(dataset_filtered))
 exit()
@@ -143,18 +152,18 @@ def evaluate(model, loader, criterion, device, label_map):
     loss_sum = 0
     
     with torch.no_grad():
-        for x_acc, x_gyr, x_mag, x_mic, labels in loader:
+        for x_acc, x_gyr, x_mag, labels in loader:
             x_acc = x_acc.to(device).float()
             x_gyr = x_gyr.to(device).float()
             x_mag = x_mag.to(device).float()
-            x_mic = x_mic.to(device).float()
+            # x_mic = x_mic.to(device).float()
             
             # --- APPLY LABEL MAPPING ---
             # Transform raw tensor labels to indices using the dict 'd'
             labels_mapped = [label_map[int(l)] for l in labels]
             labels = torch.tensor(labels_mapped, dtype=torch.long).to(device)
             
-            outputs = model(x_acc, x_gyr, x_mag, x_mic)
+            outputs = model(x_acc, x_gyr, x_mag)
             loss = criterion(outputs, labels)
             
             loss_sum += loss.item()
@@ -166,7 +175,7 @@ def evaluate(model, loader, criterion, device, label_map):
 
 best_val_loss = float('inf')
 
-best_model_path = os.path.join("models", "best_model_all_sensors.pth")
+best_model_path = os.path.join("models", "__best_model_three_sensors.pth")
 
 for epoch in range(EPOCHS):
     model.train()
@@ -176,17 +185,17 @@ for epoch in range(EPOCHS):
     
     loop = tqdm(train_loader, desc=f"Epoch {epoch+1}/{EPOCHS}")
     
-    for x_acc, x_gyr, x_mag, x_mic, labels in loop:
+    for x_acc, x_gyr, x_mag, labels in loop:
         x_acc = x_acc.to(DEVICE).float()
         x_gyr = x_gyr.to(DEVICE).float()
         x_mag = x_mag.to(DEVICE).float()
-        x_mic = x_mic.to(DEVICE).float()
+        # x_mic = x_mic.to(DEVICE).float()
 
         labels_mapped = [d[int(l)] for l in labels]
         labels = torch.tensor(labels_mapped, dtype=torch.long).to(DEVICE)
         
         optimizer.zero_grad()
-        outputs = model(x_acc, x_gyr, x_mag, x_mic)
+        outputs = model(x_acc, x_gyr, x_mag)
         loss = criterion(outputs, labels)
         
         loss.backward()
@@ -227,12 +236,12 @@ all_true = []
 
 model.eval()
 with torch.no_grad():
-    for x_acc, x_gyr, x_mag, x_mic, labels in tqdm(test_loader_final, desc="Testing"):
+    for x_acc, x_gyr, x_mag, labels in tqdm(test_loader_final, desc="Testing"):
         # Move inputs to device and convert to float
         x_acc = x_acc.to(DEVICE).float()
         x_gyr = x_gyr.to(DEVICE).float()
         x_mag = x_mag.to(DEVICE).float()
-        x_mic = x_mic.to(DEVICE).float()
+        # x_mic = x_mic.to(DEVICE).float()
         
         # --- APPLY LABEL MAPPING (Same as training) ---
         # We must convert raw labels (e.g., 2, 8) to indices (0, 1) using your dict 'd'
@@ -241,7 +250,7 @@ with torch.no_grad():
         labels_mapped = [d[int(l)] for l in labels]
         
         # Forward pass
-        outputs = model(x_acc, x_gyr, x_mag, x_mic)
+        outputs = model(x_acc, x_gyr, x_mag)
         
         # Get predictions (returns value, index)
         _, predicted = torch.max(outputs, 1)
@@ -255,6 +264,9 @@ with torch.no_grad():
 # 1. Overall Accuracy
 test_accuracy = accuracy_score(all_true, all_preds)
 print(f"\n[FINAL TEST RESULT] Accuracy: {test_accuracy * 100:.2f}%")
+
+test_f1 = f1_score(all_true, all_preds, average='macro')
+print(f"\n[FINAL TEST RESULT] Accuracy: {test_f1 * 100:.2f}%")
 
 # 2. Confusion Matrix
 cm = confusion_matrix(all_true, all_preds)
