@@ -1,0 +1,9 @@
+# installs dependencies from ./data-tools/setup.py, and the package itself,
+-e ./data-tools/
+-e ./fhg-utils/
+
+jupyter
+ipython
+matplotlib
+seaborn
+tabulate
