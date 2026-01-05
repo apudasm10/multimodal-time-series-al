@@ -42,3 +42,31 @@ class EarlyStopping:
 
         if self.counter >= self.patience:
             self.should_stop = True
+
+def evaluate(model, loader, criterion, device, label_map):
+    model.eval()
+    correct = 0
+    total = 0
+    loss_sum = 0
+    
+    with torch.no_grad():
+        for x_acc, x_gyr, x_mag, labels in loader:
+            x_acc = x_acc.to(device).float()
+            x_gyr = x_gyr.to(device).float()
+            x_mag = x_mag.to(device).float()
+            # x_mic = x_mic.to(device).float()
+            
+            # --- APPLY LABEL MAPPING ---
+            # Transform raw tensor labels to indices using the dict 'd'
+            labels_mapped = [label_map[int(l)] for l in labels]
+            labels = torch.tensor(labels_mapped, dtype=torch.long).to(device)
+            
+            outputs = model(x_acc, x_gyr, x_mag)
+            loss = criterion(outputs, labels)
+            
+            loss_sum += loss.item()
+            _, predicted = torch.max(outputs.data, 1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+            
+    return 100 * correct / total, loss_sum / len(loader)
