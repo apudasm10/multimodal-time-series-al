@@ -17,6 +17,7 @@ from models import *
 from src.acq_helpers import *
 from src.acq_fn import *
 from datetime import timedelta
+from trainer import Trainer
 
 
 start = time.time()
@@ -107,7 +108,7 @@ print(f"Remaining Classes: {np.unique(all_y_filtered, return_counts=True)}")
 
 
 
-X_labeled, X_unlabeled_temp, y_labeled, y_unlabeled_temp = train_test_split(dataset_filtered, all_y_filtered, test_size=0.975, stratify=all_y)
+X_labeled, X_unlabeled_temp, y_labeled, y_unlabeled_temp = train_test_split(dataset_filtered, all_y_filtered, test_size=0.95, stratify=all_y)
 X_unlabeled, X_test, y_unlabeled, y_test = train_test_split(X_unlabeled_temp, y_unlabeled_temp, test_size=0.2, stratify=y_unlabeled_temp)
 
 print(f"train size: {len(y_labeled)}, val size: {len(y_unlabeled)}, test size: {len(y_test)}")
@@ -139,7 +140,7 @@ EPOCHS = 20
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 train_loader = DataLoader(X_labeled, batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
-test_loader = DataLoader(X_test, batch_size=BATCH_SIZE, shuffle=False)
+val_loader = DataLoader(X_test, batch_size=BATCH_SIZE, shuffle=False)
 
 optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
 # criterion = FocalLoss(torch.Tensor([v for v in class_counts.values()]))
@@ -150,6 +151,12 @@ best_val_loss = float('inf')
 
 best_model_path = os.path.join("models", "__best_model.pth")
 
+
+trainer = Trainer(model, train_loader, val_loader, optimizer, criterion, device, save_dir="models", label_map=d)
+trainer.fit(10)
+
+
+exit()
 for epoch in range(EPOCHS):
     model.train()
     running_loss = 0.0
@@ -183,8 +190,9 @@ for epoch in range(EPOCHS):
         
     epoch_acc = 100 * correct / total
     epoch_loss = running_loss / len(train_loader)
-    val_acc, val_loss = evaluate(model, test_loader, criterion, DEVICE, d)
-    print(f"Epoch {epoch+1} Results -> Train Acc: {epoch_acc:.2f}% | Train Loss: {epoch_loss:.4f} | Val Acc: {val_acc:.2f}% | Val Loss: {val_loss:.4f}")
+    # val_acc, val_loss = evaluate(model, test_loader, criterion, DEVICE, d)
+    val_acc, macro_f1, val_loss = evaluate(model, val_loader, criterion, DEVICE, d)
+    print(f"Epoch {epoch+1} Results -> Train Acc: {epoch_acc:.2f}% | Train Loss: {epoch_loss:.4f} | Val Acc: {val_acc:.2f}% | Val Loss: {val_loss:.4f} | Macro F1: {macro_f1:.4f}")
 
     if val_loss < best_val_loss:
         best_val_loss = val_loss
@@ -223,35 +231,6 @@ random_unlabeled_loader = copy.deepcopy(unlabeled_loader)
 # os.makedirs(entropy_log_dir, exist_ok=True)
 
 
-# ===== Random branch loop =====
-for round_id in range(number_of_round):
-    print(f"\n========== Random Round {round_id+1}/{number_of_round} ==========")
-
-    unlabeled_selected, idx = select_random(random_unlabeled, B)
-
-    random_labeled = np.append(random_labeled, unlabeled_selected)
-
-    mask = np.ones(len(random_unlabeled), dtype=bool)
-    mask[idx] = False
-    random_unlabeled = random_unlabeled[mask]
-
-    print(f"Labeled Samples: {len(random_labeled)}, Uabeled Samples: {len(random_unlabeled)} and Validation Samples: {len(val_data)}")
-
-    # Rebuild datasets/loaders
-    random_labeled_data = WoundDataset(random_labeled, "data", train_transform)
-    random_unlabeled_data = WoundDataset(random_unlabeled, "data", val_transform)
-
-    random_labeled_loader, random_unlabeled_loader, val_loader = get_loaders_label(random_labeled_data, random_unlabeled_data, val_data, batch_size)
-
-    optimizer = torch.optim.AdamW(random_model.parameters(), lr=lr, weight_decay=weight_decay)
-
-    trainer = Trainer(random_model, random_labeled_loader, val_loader, optimizer, scheduler=None, criterion=criterion,
-                      n_classes=n_classes, device=device, save_dir=random_log_dir, scores_csv=random_scores_csv, k_best=1)
-
-    trainer.fit(epochs_per_round, use_fdl=False)
-
-    best_model_path = trainer.get_best_model()
-    random_model.load_state_dict(torch.load(best_model_path, map_location=device))
 
 
 # ===== Entropy branch loop =====

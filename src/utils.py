@@ -1,6 +1,10 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from sklearn.metrics import f1_score
+import torch
+import os
+import numpy as np
 
 class FocalLoss(nn.Module):
     def __init__(self, gamma=2.0, alpha=None, reduction='mean'):
@@ -43,21 +47,20 @@ class EarlyStopping:
         if self.counter >= self.patience:
             self.should_stop = True
 
+
 def evaluate(model, loader, criterion, device, label_map):
     model.eval()
-    correct = 0
-    total = 0
     loss_sum = 0
+    
+    all_preds = []
+    all_targets = []
     
     with torch.no_grad():
         for x_acc, x_gyr, x_mag, labels in loader:
             x_acc = x_acc.to(device).float()
             x_gyr = x_gyr.to(device).float()
             x_mag = x_mag.to(device).float()
-            # x_mic = x_mic.to(device).float()
             
-            # --- APPLY LABEL MAPPING ---
-            # Transform raw tensor labels to indices using the dict 'd'
             labels_mapped = [label_map[int(l)] for l in labels]
             labels = torch.tensor(labels_mapped, dtype=torch.long).to(device)
             
@@ -65,8 +68,35 @@ def evaluate(model, loader, criterion, device, label_map):
             loss = criterion(outputs, labels)
             
             loss_sum += loss.item()
-            _, predicted = torch.max(outputs.data, 1)
-            total += labels.size(0)
-            correct += (predicted == labels).sum().item()
             
-    return 100 * correct / total, loss_sum / len(loader)
+            _, predicted = torch.max(outputs.data, 1)
+            
+            all_preds.extend(predicted.cpu().numpy())
+            all_targets.extend(labels.cpu().numpy())
+            
+    macro_f1 = f1_score(all_targets, all_preds, average='macro')
+    
+    correct = sum([1 for p, t in zip(all_preds, all_targets) if p == t])
+    accuracy = 100 * correct / len(all_preds)
+    
+    avg_loss = loss_sum / len(loader)
+    
+    return accuracy, macro_f1, avg_loss
+
+def track_score(epoch, train_loss, train_dice, train_iou, train_acc, val_loss, val_dice, val_iou, val_acc, save_file="training_log.txt"):
+    if not os.path.exists(save_file):
+        with open(save_file, 'w') as f:
+            f.write("Epoch,TrainLoss,TrainDice,TrainIoU,TrainAcc,ValLoss,ValDice,ValIoU,ValAcc\n")
+
+    with open(save_file, 'a') as f:
+        f.write(f"{epoch},{train_loss:.4f},{train_dice:.4f},{train_iou:.4f},{train_acc:.4f},{val_loss:.4f},{val_dice:.4f},{val_iou:.4f},{val_acc:.4f}\n")
+
+def linear_delta(epoch, total_epochs, delta_max=0.2, delta_min=0.01):
+    t = min(max(epoch, 0), total_epochs - 1)
+    frac = t/(total_epochs - 1)
+
+    return delta_max - frac * (delta_max - delta_min)
+
+
+def cosine_delta(epoch, total_epochs, delta_max=0.2, delta_min=0.01):
+    return delta_min + 0.5 * (delta_max - delta_min) * (1 + np.cos(np.pi * epoch / total_epochs))
