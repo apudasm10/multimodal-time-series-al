@@ -18,6 +18,7 @@ from src.acq_helpers import *
 from src.acq_fn import *
 from datetime import timedelta
 from trainer import Trainer
+import wandb
 
 
 start = time.time()
@@ -138,6 +139,8 @@ BATCH_SIZE = 16
 LEARNING_RATE = 0.001
 EPOCHS = 20
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+run = 1
+exp = "initial_experiment"
 
 train_loader = DataLoader(X_labeled, batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
 val_loader = DataLoader(X_test, batch_size=BATCH_SIZE, shuffle=False)
@@ -151,6 +154,15 @@ best_val_loss = float('inf')
 
 best_model_path = os.path.join("models", "__best_model.pth")
 
+wandb.init(
+    project=f"ADLTS",
+    name=f"{exp}-{run}",
+    config={
+        "batch_size": BATCH_SIZE,
+        "epochs": EPOCHS,
+        "lr": LEARNING_RATE
+    }
+)
 
 trainer = Trainer(model, train_loader, val_loader, optimizer, criterion, device, save_dir="models", label_map=d)
 trainer.fit(10)

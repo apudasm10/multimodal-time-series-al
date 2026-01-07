@@ -1,5 +1,6 @@
 import json
 import os
+import wandb
 from src.utils import *
 from tqdm import tqdm
 
@@ -24,16 +25,16 @@ class Trainer:
         self.model.to(self.device)
 
         for epoch in range(epochs):
-            if use_fdl:
-                delta = linear_delta(epoch, epochs, m, n)
-            else:
-                delta = None
+            # if use_fdl:
+            #     delta = linear_delta(epoch, epochs, m, n)
+            # else:
+            #     delta = None
 
-            train_acc, train_loss = self.train_one_epoch()
-            val_acc, val_macro_f1, val_loss = self.evaluate()
+            train_loss, train_acc = self.train_one_epoch()
+            val_loss, val_acc, val_macro_f1 = self.evaluate()
             print(f"Epoch {epoch+1} Results -> Train Acc: {train_acc:.2f}% | Train Loss: {train_loss:.4f} | Val Acc: {val_acc:.2f}% | Val Loss: {val_loss:.4f} | Macro F1: {val_macro_f1:.4f}")
             if self.scores_csv:
-                track_score(epoch, train_loss, train_acc, val_loss, val_acc, self.scores_csv)
+                track_score(epoch, train_loss, train_acc, val_loss, val_acc, val_macro_f1)
             
             self.save_model(epoch, val_macro_f1)
 
@@ -73,7 +74,7 @@ class Trainer:
         avg_acc = 100 * correct / total
         avg_loss = running_loss / len(self.train_loader)
         
-        return avg_acc, avg_loss
+        return avg_loss, avg_acc
     
     def evaluate(self):
         self.model.eval()
@@ -108,7 +109,7 @@ class Trainer:
         
         avg_loss = loss_sum / len(self.val_loader)
         
-        return accuracy, macro_f1, avg_loss
+        return avg_loss, accuracy, macro_f1
 
     def save_model(self, epoch, score):
         # full_dir = os.path.join("runs", self.save_dir)
@@ -122,6 +123,19 @@ class Trainer:
             _, path_to_remove = self.best_models.pop()
             if os.path.exists(path_to_remove):
                 os.remove(path_to_remove)
+
+    def track_score(self, epoch, train_loss, train_acc, val_loss, val_acc, val_macro_f1):
+        log_data = {
+            'epoch': epoch,
+            'train_loss': train_loss,
+            'train_acc': train_acc,
+            'val_loss': val_loss,
+            'val_acc': val_acc,
+            'val_macro_f1': val_macro_f1
+        }
+
+        wandb.log(log_data)
+
 
     def get_best_model(self):
         return self.best_models[0][1]
