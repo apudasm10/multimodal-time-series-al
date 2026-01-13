@@ -4,72 +4,56 @@ import torch.nn.functional as F
 import numpy as np
 
 @torch.no_grad()
-def entropy_scores_multiclass(model, unlabeled_loader, device="cuda", bs=8, logit_interp_to=None, image_reduction="mean", mc_passes=1,):
+def entropy_scores(model, unlabeled_loader, device="cuda", mc_passes=1):
     """
+    Computes entropy for the TCN model (Acc, Gyr, Mag).
+    
+    Args:
+        mc_passes: >1 enables Monte Carlo Dropout for better uncertainty estimation.
     Returns:
-        indices: (N,) dataset indices aligned to unlabeled set
-        scores:  (N,) image-level entropy scores (higher = more uncertain)
+        scores: (N,) tensor of entropy scores (higher = more uncertain)
     """
     model.eval().to(device)
 
-    # Enable dropout during MC if requested
+    # --- 1. MC Dropout Setup ---
+    # If using MC sampling, force Dropout layers to stay active during Eval
     if mc_passes > 1:
         def _set_drop(m):
-            if isinstance(m, (nn.Dropout, nn.Dropout2d, nn.Dropout3d)):
+            if isinstance(m, (nn.Dropout, nn.Dropout1d, nn.Dropout2d)):
                 m.train()
         model.apply(_set_drop)
 
-    indices_list, scores_list = [], []
+    all_scores = []
 
-    for bidx, batch in enumerate(unlabeled_loader):
-        if isinstance(batch, (list, tuple)) and len(batch) >= 1:
-            imgs = batch[0]
-            maybe_indices = batch[1] if len(batch) > 1 else None
-        else:
-            imgs, maybe_indices = batch, None
-
-        imgs = imgs.to(device)
-
-        # MC passes of softmax probabilities
+    # --- 2. Inference Loop ---
+    for batch in unlabeled_loader:
+        # Unpack based on ToolTrackingDataset structure
+        # Even if we don't use Mic, the loader still yields it, so we must unpack it to ignore it.
+        x_acc, x_gyr, x_mag, labels = batch
+        
+        x_acc = x_acc.to(device).float()
+        x_gyr = x_gyr.to(device).float()
+        x_mag = x_mag.to(device).float()
+        
+        # MC Loop
         probs_accum = None
         for _ in range(mc_passes):
-            out = model(imgs)
-            logits = out if not isinstance(out, tuple) else out[0]  # e.g., (logits, extras)
-
-            if logit_interp_to is not None and logits.ndim == 4:
-                logits = F.interpolate(
-                    logits, size=logit_interp_to, mode="bilinear", align_corners=False
-                )
-
-            pr = torch.softmax(logits, dim=1)  # (B, C, H, W)
+            # Forward pass (3 inputs only)
+            logits = model(x_acc, x_gyr, x_mag) 
+            
+            # TCN Output shape is (Batch, Classes)
+            pr = torch.softmax(logits, dim=1)
+            
             probs_accum = pr if probs_accum is None else (probs_accum + pr)
 
+        # Average probabilities across MC passes
         probs = probs_accum / mc_passes
 
-        # Pixelwise entropy: H = -sum p log p
-        ent = -(probs * (probs.clamp_min(1e-12).log())).sum(dim=1)  # (B, H, W)
+        # --- 3. Entropy Calculation ---
+        # Formula: H = -sum(p * log(p))
+        # We sum across dim=1 (Classes)
+        ent = -(probs * probs.clamp_min(1e-12).log()).sum(dim=1) # Result shape: (Batch,)
 
-        # Reduce to image-level score
-        if image_reduction == "mean":
-            img_scores = ent.mean(dim=(1, 2))
-        elif image_reduction == "max":
-            img_scores = ent.amax(dim=(1, 2))
-        elif image_reduction == "p95":
-            img_scores = ent.flatten(1).quantile(0.95, dim=1)
-        else:
-            raise ValueError("image_reduction must be one of {'mean','max','p95'}")
+        all_scores.append(ent.cpu())
 
-        indices_list.append(collect_indices(bidx, imgs, maybe_indices, bs))
-        scores_list.append(img_scores.detach().cpu())
-
-    indices = torch.cat(indices_list, dim=0)
-    scores  = torch.cat(scores_list, dim=0)
-    return indices, scores
-
-@torch.no_grad()
-def collect_indices(batch_idx, imgs, maybe_indices, bs):
-    if (maybe_indices is not None and torch.is_tensor(maybe_indices)
-        and maybe_indices.ndim == 1
-        and maybe_indices.dtype in (torch.int64, torch.int32)):
-        return maybe_indices.detach().cpu()
-    return torch.arange(batch_idx * bs, batch_idx * bs + imgs.size(0))
+    return torch.cat(all_scores)

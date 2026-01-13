@@ -10,7 +10,7 @@ import random
 
 from src.dataset import ToolTrackingDataset, ToolTrackingDataset2
 from src.model import TwoStreamTCN, TCN
-from torch.utils.data import DataLoader, random_split, Subset
+from torch.utils.data import DataLoader, Subset
 from sklearn.model_selection import train_test_split
 from src.utils import *
 from models import *
@@ -24,6 +24,11 @@ import wandb
 start = time.time()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"CUDA available: {device}")
+
+with open("api-keys.json") as s:
+    secrets = json.load(s)
+
+os.environ['WANDB_API_KEY'] = secrets['WANDB_API_KEY']
 
 random_state = 42
 
@@ -167,67 +172,10 @@ wandb.init(
 trainer = Trainer(model, train_loader, val_loader, optimizer, criterion, device, save_dir="models", label_map=d)
 trainer.fit(10)
 
+best_model_path = trainer.get_best_model()
+model.load_state_dict(torch.load(best_model_path, map_location=device))
 
 exit()
-for epoch in range(EPOCHS):
-    model.train()
-    running_loss = 0.0
-    correct = 0
-    total = 0
-    
-    loop = tqdm(train_loader, desc=f"Epoch {epoch+1}/{EPOCHS}")
-    
-    for x_acc, x_gyr, x_mag, labels in loop:
-        x_acc = x_acc.to(DEVICE).float()
-        x_gyr = x_gyr.to(DEVICE).float()
-        x_mag = x_mag.to(DEVICE).float()
-        # x_mic = x_mic.to(DEVICE).float()
-
-        labels_mapped = [d[int(l)] for l in labels]
-        labels = torch.tensor(labels_mapped, dtype=torch.long).to(DEVICE)
-        
-        optimizer.zero_grad()
-        outputs = model(x_acc, x_gyr, x_mag)
-        loss = criterion(outputs, labels)
-        
-        loss.backward()
-        optimizer.step()
-        
-        running_loss += loss.item()
-        _, predicted = torch.max(outputs.data, 1)
-        total += labels.size(0)
-        correct += (predicted == labels).sum().item()
-        
-        loop.set_postfix(loss=loss.item(), acc=100 * correct / total)
-        
-    epoch_acc = 100 * correct / total
-    epoch_loss = running_loss / len(train_loader)
-    # val_acc, val_loss = evaluate(model, test_loader, criterion, DEVICE, d)
-    val_acc, macro_f1, val_loss = evaluate(model, val_loader, criterion, DEVICE, d)
-    print(f"Epoch {epoch+1} Results -> Train Acc: {epoch_acc:.2f}% | Train Loss: {epoch_loss:.4f} | Val Acc: {val_acc:.2f}% | Val Loss: {val_loss:.4f} | Macro F1: {macro_f1:.4f}")
-
-    if val_loss < best_val_loss:
-        best_val_loss = val_loss
-        torch.save(model.state_dict(), best_model_path)
-        print(f"Best model updated! Saved to {best_model_path}")
-        
-    early_stopping.step(val_loss)
-    if early_stopping.should_stop:
-        print("Early stopping activated.")
-        break
-
-print("[INFO] Training Complete.")
-
-exit()
-
-# ----- Branch: Entropy -----
-# entropy_model = copy.deepcopy(model).to(device)
-# entropy_labeled = labeled.copy()
-# entropy_labeled_loader = copy.deepcopy(labeled_loader)
-# entropy_unlabeled = unlabeled.copy()
-# entropy_unlabeled_loader = copy.deepcopy(unlabeled_loader)
-# entropy_log_dir = os.path.join(save_root, "branch_entropy")
-# entropy_scores_csv = os.path.join(entropy_log_dir, "scores.csv")
 
 
 # ----- Branch: Random -----
@@ -243,38 +191,36 @@ random_unlabeled_loader = copy.deepcopy(unlabeled_loader)
 # os.makedirs(entropy_log_dir, exist_ok=True)
 
 
+# ===== Random branch loop =====
+for round_id in range(number_of_round):
+    print(f"\n========== Random Round {round_id+1}/{number_of_round} ==========")
 
+    unlabeled_selected, idx = select_random(random_unlabeled, B)
 
-# ===== Entropy branch loop =====
-# for round_id in range(number_of_round):
-#     print(f"\n========== Entropy Round {round_id+1}/{number_of_round} ==========")
+    random_labeled = np.append(random_labeled, unlabeled_selected)
 
-#     unlabeled_selected, idx = select_acq_entropy(entropy_model, entropy_unlabeled_loader, entropy_unlabeled, B, device=device, bs=batch_size, logit_interp_to=None, image_reduction="mean", mc_passes=10)
+    mask = np.ones(len(random_unlabeled), dtype=bool)
+    mask[idx] = False
+    random_unlabeled = random_unlabeled[mask]
 
-#     entropy_labeled = np.append(entropy_labeled, unlabeled_selected)
+    print(f"Labeled Samples: {len(random_labeled)}, Uabeled Samples: {len(random_unlabeled)} and Validation Samples: {len(val_data)}")
 
-#     mask = np.ones(len(entropy_unlabeled), dtype=bool)
-#     mask[idx] = False
-#     entropy_unlabeled = entropy_unlabeled[mask]
+    # Rebuild datasets/loaders
+    random_labeled_data = WoundDataset(random_labeled, "data", train_transform)
+    random_unlabeled_data = WoundDataset(random_unlabeled, "data", val_transform)
 
-#     print(f"Labeled Samples: {len(entropy_labeled)}, Uabeled Samples: {len(entropy_unlabeled)} and Validation Samples: {len(val_data)}")
+    random_labeled_loader, random_unlabeled_loader, val_loader = get_loaders_label(random_labeled_data, random_unlabeled_data, val_data, batch_size)
 
-#     entropy_labeled_data = WoundDataset(entropy_labeled, "data", train_transform)
-#     entropy_unlabeled_data = WoundDataset(entropy_unlabeled, "data", val_transform)
+    optimizer = torch.optim.AdamW(random_model.parameters(), lr=lr, weight_decay=weight_decay)
 
-#     entropy_labeled_loader, entropy_unlabeled_loader, val_loader = get_loaders_label(entropy_labeled_data, entropy_unlabeled_data, val_data, batch_size)
+    trainer = Trainer(random_model, random_labeled_loader, val_loader, optimizer, scheduler=None, criterion=criterion,
+                      n_classes=n_classes, device=device, save_dir=random_log_dir, scores_csv=random_scores_csv, k_best=1)
 
-#     optimizer = torch.optim.AdamW(entropy_model.parameters(), lr=lr, weight_decay=weight_decay)
+    trainer.fit(epochs_per_round, use_fdl=False)
 
-#     trainer = Trainer(entropy_model, entropy_labeled_loader, val_loader, optimizer, criterion=criterion,
-#                       n_classes=n_classes, device=device, save_dir=entropy_log_dir, scores_csv=entropy_scores_csv)
+    best_model_path = trainer.get_best_model()
+    random_model.load_state_dict(torch.load(best_model_path, map_location=device))
 
-#     trainer.fit(epochs_per_round, use_fdl=False)
-
-#     best_model_path = trainer.get_best_model()
-#     entropy_model.load_state_dict(torch.load(best_model_path, map_location=device))
-
-    
 
 end = time.time()
 

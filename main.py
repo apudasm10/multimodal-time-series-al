@@ -22,8 +22,6 @@ dataset = ToolTrackingDataset2(
     exclude_time=True
 )
 
-print(dataset[0][0].shape)
-
 class_counts = {}
 
 all_y = []

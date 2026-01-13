@@ -1,5 +1,6 @@
 import torch
 from src.acq_helpers import *
+import numpy as np
 
 
 def select_random(unlabeled, B, random_state=42):
@@ -7,9 +8,21 @@ def select_random(unlabeled, B, random_state=42):
     idx = np.random.choice(len(unlabeled), size=min(B, len(unlabeled)), replace=False)
     return unlabeled[idx], idx
 
-def select_acq_entropy(model, unlabeled_loader, unlabeled, B, device="cuda", bs=8, logit_interp_to=None, image_reduction="mean", mc_passes=1):
-    idxs, scores = entropy_scores_multiclass(model, unlabeled_loader, device=device, bs=bs, logit_interp_to=logit_interp_to, image_reduction=image_reduction, mc_passes=mc_passes)
-    order = torch.argsort(scores, descending=True)
-    chosen = order[:B]
 
-    return unlabeled[chosen], idxs[chosen].tolist()
+def select_acq_entropy(model, loader, current_pool_indices, budget, device, mc_passes=2):
+    """
+    Selects top-k samples with highest entropy.
+    
+    Args:
+        loader: DataLoader for the current unlabeled subset
+        current_pool_indices: List/Array of actual dataset indices corresponding to the loader
+    """
+    scores = entropy_scores(model, loader, device=device, mc_passes=mc_passes) 
+    sorted_local_idx = torch.argsort(scores, descending=True).numpy()
+
+    actual_budget = min(budget, len(sorted_local_idx))
+    top_k_local = sorted_local_idx[:actual_budget]
+
+    selected_real_indices = [current_pool_indices[i] for i in top_k_local]
+    
+    return selected_real_indices

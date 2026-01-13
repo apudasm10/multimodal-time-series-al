@@ -6,7 +6,7 @@ from tqdm import tqdm
 
 
 class Trainer:
-    def __init__(self, model, train_loader, val_loader, optimizer, criterion, device, scheduler=None, scores_csv=None, save_dir="models", k_best=1, label_map=None):
+    def __init__(self, model, train_loader, val_loader, optimizer, criterion, device, early_stopping=None, scheduler=None, save_score=False, save_dir="models", k_best=1, label_map=None):
         self.model = model
         self.train_loader = train_loader
         self.val_loader = val_loader
@@ -16,10 +16,14 @@ class Trainer:
         self.device = device
         self.label_map = label_map
 
-        self.scores_csv = scores_csv
+        self.save_score = save_score
         self.save_dir = save_dir
         self.k_best = k_best
         self.best_models = []
+        if early_stopping:
+            self.early_stopping = EarlyStopping(patience=early_stopping)
+        else:
+            self.early_stopping = None
 
     def fit(self, epochs=1, m=0.2, n=0.1, use_fdl=False):
         self.model.to(self.device)
@@ -33,13 +37,19 @@ class Trainer:
             train_loss, train_acc = self.train_one_epoch()
             val_loss, val_acc, val_macro_f1 = self.evaluate()
             print(f"Epoch {epoch+1} Results -> Train Acc: {train_acc:.2f}% | Train Loss: {train_loss:.4f} | Val Acc: {val_acc:.2f}% | Val Loss: {val_loss:.4f} | Macro F1: {val_macro_f1:.4f}")
-            if self.scores_csv:
-                track_score(epoch, train_loss, train_acc, val_loss, val_acc, val_macro_f1)
+            if self.save_score:
+                self.track_score(epoch, train_loss, train_acc, val_loss, val_acc, val_macro_f1)
             
             self.save_model(epoch, val_macro_f1)
 
             if self.scheduler:
                 self.scheduler.step(val_loss)
+            
+            if self.early_stopping:
+                self.early_stopping.step(val_loss)
+                if self.early_stopping.should_stop:
+                    print("Early stopping activated.")
+                    break
 
     def train_one_epoch(self):
         self.model.train()
@@ -114,7 +124,7 @@ class Trainer:
     def save_model(self, epoch, score):
         # full_dir = os.path.join("runs", self.save_dir)
         # os.makedirs(full_dir, exist_ok=True)
-        model_path = os.path.join(self.save_dir, f"model{epoch+1}_dice{score:.4f}.pth")
+        model_path = os.path.join(self.save_dir, f"model{epoch+1}_f1{score:.4f}.pth")
         torch.save(self.model.state_dict(), model_path)
         self.best_models.append((score, model_path))
 
