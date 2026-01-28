@@ -100,3 +100,26 @@ def linear_delta(epoch, total_epochs, delta_max=0.2, delta_min=0.01):
 
 def cosine_delta(epoch, total_epochs, delta_max=0.2, delta_min=0.01):
     return delta_min + 0.5 * (delta_max - delta_min) * (1 + np.cos(np.pi * epoch / total_epochs))
+
+
+def get_embeddings(classifier, X):
+    net = classifier.module_
+
+    prev_mode = net.output_mode
+    was_training = net.training
+
+    net.output_mode = "embedding"
+    net.eval()
+
+    embeddings = []
+    probs = []
+
+    with torch.no_grad():
+        for emb, logit in classifier.forward_iter(X, training=False):
+            embeddings.append(emb.detach().cpu())
+            probs.append(F.softmax(logit, dim=-1).detach().cpu())
+
+    net.output_mode = prev_mode
+    net.train(was_training)
+
+    return torch.cat(embeddings, dim=0), torch.cat(probs, dim=0)

@@ -84,32 +84,38 @@ class TwoStreamTCN(nn.Module):
     
 
 class TCN(nn.Module):
-    def __init__(self, num_classes):
+    def __init__(self, num_classes, output_mode='logits'):
         super(TCN, self).__init__()
+        self.output_mode = output_mode
         
-        # --- Stream A: Motion (IMU + Mag) ---
-        # Inputs: Acc(3) + Gyr(3) + Mag(3) = 9 Channels
         self.motion_branch = nn.Sequential(
-            nn.BatchNorm1d(9), # Normalize raw inputs
+            nn.BatchNorm1d(9),
             TemporalBlock(9, 32, kernel_size=3, stride=1, dilation=1, padding=2),
             TemporalBlock(32, 64, kernel_size=3, stride=1, dilation=2, padding=4),
             TemporalBlock(64, 128, kernel_size=3, stride=1, dilation=4, padding=8),
             TemporalBlock(128, 128, kernel_size=3, stride=1, dilation=8, padding=16),
-            nn.AdaptiveAvgPool1d(1) # Output: (Batch, 64, 1)
+            nn.AdaptiveAvgPool1d(1)
         )
     
-        # --- Classifier ---
-        self.classifier = nn.Sequential(
+        self.embedding = nn.Sequential(
             nn.Linear(128, 64),
             nn.ReLU(),
             nn.Dropout(0.25),
+        )
+
+        self.classifier = nn.Sequential(
             nn.Linear(64, num_classes)
         )
 
-    def forward(self, x_acc, x_gyr, x_mag):
+    def forward(self, X):
+        x_acc, x_gyr, x_mag = X
 
         x_motion = torch.cat([x_acc, x_gyr, x_mag], dim=1)
         
-        feat_motion = self.motion_branch(x_motion).squeeze(-1) # (N, 64)
-                
-        return self.classifier(feat_motion)
+        feat_motion = self.motion_branch(x_motion).squeeze(-1)
+        embed = self.embedding(feat_motion)
+
+        if self.output_mode == "embedding":
+            return embed
+        else:
+            return self.classifier(embed)

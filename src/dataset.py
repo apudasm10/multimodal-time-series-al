@@ -238,7 +238,7 @@ class ToolTrackingDataset2(Dataset):
         y_window = self.y_trans[idx:idx+4]
         y_label = torch.tensor(y_window[0][0], dtype=torch.long)
         
-        return x_acc, x_gyr, x_mag, y_label
+        return (x_acc, x_gyr, x_mag), y_label
     
 def has_unique_label_for_window(y):
     values, counts = np.unique(y, return_counts=True)
