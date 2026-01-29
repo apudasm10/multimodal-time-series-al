@@ -114,8 +114,9 @@ class TCN(nn.Module):
         
         feat_motion = self.motion_branch(x_motion).squeeze(-1)
         embed = self.embedding(feat_motion)
+        logits = self.classifier(embed)
 
         if self.output_mode == "embedding":
-            return embed
+            return embed, logits
         else:
-            return self.classifier(embed)
+            return logits
