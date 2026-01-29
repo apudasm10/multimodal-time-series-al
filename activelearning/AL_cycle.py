@@ -1,7 +1,8 @@
 import logging
 from collections.abc import Callable
 from typing import Any, Literal
-
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -1300,4 +1301,4 @@ def plot_results(
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         print(f"[INFO] Plot saved to: {save_path}")
     
-    plt.show()
+    # plt.show()

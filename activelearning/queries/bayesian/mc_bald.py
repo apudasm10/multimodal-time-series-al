@@ -49,7 +49,7 @@ def enable_dropout_layers(model: skorch.NeuralNetClassifier) -> None:
 
 
 # def get_mc_preds(model: skorch.NeuralNetClassifier, X_pool: np.ndarray, n_cycles: int = 50) -> np.ndarray:
-def get_mc_preds(model: skorch.NeuralNetClassifier, X_pool: np.ndarray, n_cycles: int = 30, batch_size=512) -> np.ndarray:
+def get_mc_preds(model: skorch.NeuralNetClassifier, X_pool: np.ndarray, n_cycles: int = 50, batch_size=512) -> np.ndarray:
 
     """Function to get the softmax predictions of mc dropout.
 
