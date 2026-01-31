@@ -133,7 +133,7 @@ y_test = y_data[test_idx]
 num_classes = len(unique_labels)
 n_instances = 100  # Query batch size
 print(f"[INFO] Num Classes: {num_classes}")
-ROOT_OUTPUT_DIR = os.path.join("Outputs", f"TCN{n_instances}")
+ROOT_OUTPUT_DIR = os.path.join("Outputs", f"LSTM{n_instances}")
 os.makedirs(os.path.join(ROOT_OUTPUT_DIR, "models"), exist_ok=True)
 os.makedirs(os.path.join(ROOT_OUTPUT_DIR, "results"), exist_ok=True)
 os.makedirs(os.path.join(ROOT_OUTPUT_DIR, "plots"), exist_ok=True)
@@ -178,13 +178,17 @@ class_weights = compute_class_weights_from_labels(y_pool, beta=0.999)
 class_weights_tensor = torch.from_numpy(class_weights).float()
 
 classifier = NeuralNetClassifier(
-    module=TCN,
+    module=LSTM_CLASSIF,
+    module__input_size=3,
+    module__hidden_size=32,
+    module__num_layers=1,
+    module__dropout_p=0.3,
     module__num_classes=num_classes,
     criterion=torch.nn.CrossEntropyLoss,
     criterion__weight=class_weights_tensor,
     optimizer=torch.optim.Adam,
-    lr=1e-3,
-    batch_size=64,
+    lr=2e-3,
+    batch_size=16,
     max_epochs=100,
     device=device,
     

@@ -43,7 +43,7 @@ from src.utils import get_embeddings
 
 
 class SkorchActiveLearner(ActiveLearner):
-    def teach(self, X, y, only_new=False, **fit_kwargs):
+    def teach(self, X, y, only_new=False, checkpoint_name=None, **fit_kwargs):
         if self.X_training is None or only_new:
             self.X_training = X
             self.y_training = y
@@ -59,7 +59,7 @@ class SkorchActiveLearner(ActiveLearner):
         
         self.estimator.fit(self.X_training, self.y_training, **fit_kwargs)
         # self.estimator.load_params(f_params='../examples/best_weights.pt')
-        self.estimator.load_params(f_params='best_weights.pt')
+        self.estimator.load_params(f_params=checkpoint_name)
         
     
 
@@ -658,6 +658,7 @@ def cycle_AL(
     goal_metric: str = "f1",
     goal_metric_val: float = 0.75,
     acc: str = "test",
+    checkpoint_name: str = "",
 ) -> tuple[list, list]:
     """Executes Active Learning on provided data with the specified strategy and parameters.
 
@@ -715,12 +716,12 @@ def cycle_AL(
     else:
         # in this case the classifier is assumed to be a non-default sklearn classifier
         # if the model is wrongly specified, activelearner will give an error
-        learner = ActiveLearner(
-            estimator=classifier, query_strategy=query_strategy, X_training=X_train, y_training=y_train
-        )
-        # learner = SkorchActiveLearner(
+        # learner = ActiveLearner(
         #     estimator=classifier, query_strategy=query_strategy, X_training=X_train, y_training=y_train
         # )
+        learner = SkorchActiveLearner(
+            estimator=classifier, query_strategy=query_strategy, X_training=X_train, y_training=y_train
+        )
 
         classifier_copy = copy.deepcopy(classifier)
 
@@ -834,6 +835,7 @@ def cycle_AL(
                 X_pool[query_idx],
                 y_pool[query_idx],
                 only_new=False,
+                checkpoint_name=checkpoint_name,
             )  # appends instances to labeled set
             if committee_classifiers != []:
                 committee.teach(
@@ -1051,6 +1053,7 @@ def strategy_comparison(
     goal_metric: str = "f1",
     goal_metric_val: float = 0.75,
     acc: str = "test",
+    checkpoint_name: str = None,
 ) -> list[pd.DataFrame]:
     """Executes Active Learning on provided data with many strategies and parameters, and returns a data frame
     for comparing results.
@@ -1133,6 +1136,7 @@ def strategy_comparison(
                 goal_metric=goal_metric,
                 goal_metric_val=goal_metric_val,
                 acc=acc,
+                checkpoint_name=checkpoint_name,
             )
 
             # col_names[j + 1] += " inst"
