@@ -131,7 +131,7 @@ y_test = y_data[test_idx]
 
 # --- Classifier Setup ---
 num_classes = len(unique_labels)
-n_instances = 100  # Query batch size
+n_instances = 50  # Query batch size
 print(f"[INFO] Num Classes: {num_classes}")
 ROOT_OUTPUT_DIR = os.path.join("Outputs", f"TCN{n_instances}")
 os.makedirs(os.path.join(ROOT_OUTPUT_DIR, "models"), exist_ok=True)
