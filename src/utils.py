@@ -5,6 +5,8 @@ from sklearn.metrics import f1_score
 import torch
 import os
 import numpy as np
+import librosa
+from skimage.transform import resize
 
 class FocalLoss(nn.Module):
     def __init__(self, gamma=2.0, alpha=None, reduction='mean'):
@@ -123,3 +125,14 @@ def get_embeddings(classifier, X):
     net.train(was_training)
 
     return torch.cat(embeddings, dim=0), torch.cat(probs, dim=0)
+
+
+def get_mfcc(audio_data, target_frames=62, n_mfcc=13, sr=3200):    
+    if audio_data.dtype == np.int16:
+        audio_data = audio_data.astype(np.float32) / 32768.0
+    
+    mfcc = librosa.feature.mfcc(y=audio_data, sr=sr, n_mfcc=n_mfcc, n_fft=2048)
+    
+    mfcc_resized = resize(mfcc, (n_mfcc, target_frames), mode='reflect', anti_aliasing=True)
+    
+    return mfcc_resized.T
