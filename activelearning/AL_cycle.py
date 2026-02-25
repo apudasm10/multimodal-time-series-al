@@ -37,6 +37,9 @@ from activelearning.utils.skorch_nnet import (
 import copy
 from sklearn.metrics import f1_score
 from skorch.dataset import CVSplit
+import os
+from sklearn.manifold import TSNE
+from matplotlib.lines import Line2D
 
 
 from src.utils import get_embeddings
@@ -61,7 +64,65 @@ class SkorchActiveLearner(ActiveLearner):
         # self.estimator.load_params(f_params='../examples/best_weights.pt')
         self.estimator.load_params(f_params=checkpoint_name)
         
+
+def plot_tsne_selections(classifier, X_pool, y_pool, query_idx, strategy_name, round_num, output_dir="Ablation_study"):
+    """
+    Reduces the embeddings of the current pool using t-SNE and plots them.
+    Includes dual legends: one for Sample Type and one for Classes.
+    """
+    print(f"[INFO] Generating t-SNE plot for {strategy_name} - Round {round_num}...")
     
+    # 1. Get embeddings
+    pool_embeddings_tensor, _ = get_embeddings(classifier, X_pool)
+    pool_embeddings = pool_embeddings_tensor.numpy()
+    
+    # 2. Fit t-SNE (reduces 64D to 2D)
+    tsne = TSNE(n_components=2, random_state=42, perplexity=30)
+    embeddings_2d = tsne.fit_transform(pool_embeddings)
+    
+    # 3. Create the plot (made slightly wider to fit the outside legend)
+    fig, ax = plt.subplots(figsize=(8, 8))
+    
+    # Plot unlabeled pool
+    scatter = ax.scatter(embeddings_2d[:, 0], embeddings_2d[:, 1], 
+                         c=y_pool, cmap='tab10', alpha=0.3, s=20)
+    
+    # Plot queried samples
+    ax.scatter(embeddings_2d[query_idx, 0], embeddings_2d[query_idx, 1], 
+               c='red', marker='*', s=150, edgecolor='black')
+    
+    # --- LEGEND 1: Sample Type (Inside the plot) ---
+    marker_unlabeled = Line2D([0], [0], marker='o', color='w', markerfacecolor='gray', markersize=8, alpha=0.5, label='Unlabeled Pool')
+    marker_queried = Line2D([0], [0], marker='*', color='w', markerfacecolor='red', markeredgecolor='black', markersize=15, label='Queried Samples')
+    
+    # legend1 = ax.legend(handles=[marker_unlabeled, marker_queried], loc='upper right', title="Sample Type", title_fontproperties={'weight':'bold'})
+    # ax.add_artist(legend1) # This line ensures Legend 1 isn't erased when we add Legend 2
+    
+    # --- LEGEND 2: Classes (Outside the plot) ---
+    unique_classes = np.unique(y_pool)
+    class_handles = []
+    
+    # You can map these to actual string names later if you want 
+    # (e.g., 0: 'tightening', 1: 'untightening', etc.) based on your label_map
+    for cls in unique_classes:
+        # Extract the exact color used for this class from the scatter plot
+        color = scatter.cmap(scatter.norm(cls))
+        class_handles.append(Line2D([0], [0], marker='o', color='w', markerfacecolor=color, markersize=8, label=f'Class {int(cls)}'))
+        
+    # Place this legend outside the plot box so it doesn't cover points
+    ax.legend(handles=class_handles, loc='center left', bbox_to_anchor=(1.02, 0.5), title="Action Classes", title_fontproperties={'weight':'bold'})
+    
+    # 4. Formatting and Saving
+    clean_name = strategy_name.__name__ if hasattr(strategy_name, '__name__') else str(strategy_name)
+    plt.title(f"t-SNE Embeddings: {clean_name} (Round {round_num})", fontsize=16, pad=15)
+    
+    os.makedirs(output_dir, exist_ok=True)
+    save_path = os.path.join(output_dir, f"tsne_{clean_name}_round_{round_num}.png")
+    
+    # bbox_inches='tight' ensures the outside legend isn't cut off when saving
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"[INFO] Saved t-SNE plot to {save_path}")
 
 # def cycle_AL(
 #     X_train: np.ndarray | None,
@@ -709,6 +770,8 @@ def cycle_AL(
     else:
         is_stream = True
 
+    # torch.manual_seed(42)
+
     # declare learner as ActiveLearner class
     valid_classifiers = [c.value for c in ValidClassifiers]
     if classifier in valid_classifiers:
@@ -784,6 +847,10 @@ def cycle_AL(
     elif goal_metric == "acc":
         metric_val = accuracy
         
+    round_counter = 1
+
+    print(f"[INFO] Round {round_counter} - Starting AL cycle with {instances_sampled} instances sampled. Initial {goal_metric}: {metric_val:.4f}")
+    # -------------------------------------------------------
     # iterates until goal accuracy is reached or all pool is sampled
     # while accuracy < goal_acc and X_pool.shape[0] > 0:
     while metric_val < goal_metric_val and X_pool.shape[0] > 0:
@@ -810,6 +877,20 @@ def cycle_AL(
         else:  # pool based query
             query_idx, _ = learner.query(**query_args)
             kept = True
+        
+        # t-SNE: Generate plot only on rounds 1 and 3
+        if kept is True and round_counter in [1, 3]:
+            try:
+                plot_tsne_selections(
+                    classifier=learner.estimator, 
+                    X_pool=X_pool, 
+                    y_pool=y_pool, 
+                    query_idx=query_idx, 
+                    strategy_name=query_strategy, 
+                    round_num=round_counter
+                )
+            except Exception as e:
+                print(f"[WARNING] t-SNE plotting failed: {e}")
 
         if kept is True:
             if n_instances == 1:
@@ -886,6 +967,8 @@ def cycle_AL(
 
             instances_sampled += n_instances
             inst_list.append(instances_sampled)
+
+        round_counter += 1
 
     return acc_list, f1_list, inst_list
 
